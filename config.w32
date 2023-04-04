@@ -1,0 +1,16 @@
+// Define extension information
+ARG_WITH("sox", "SoX extension", "no");
+
+// Check if the extension is enabled
+if (PHP_SOX == "yes") {
+    // Check for required libraries
+    if (CHECK_LIB("sox.lib", "sox") && CHECK_HEADER_ADD_INCLUDE("sox.h", "CFLAGS_SOX")) {
+        // Define extension source files
+        EXTENSION("sox", "php_sox.c");
+
+        // Add extension flags
+        ADD_FLAG("CFLAGS_SOX");
+    } else {
+        WARNING("SoX extension: Unable to locate required libraries (sox.lib) or header (sox.h).");
+    }
+}
