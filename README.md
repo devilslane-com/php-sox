@@ -34,10 +34,14 @@ $sox->save("path/to/your/output_audio_file.wav");
 // Create a new Sox instance
 $sox = new Sox();
 
-$sox->analyze("path/to/your/audiofile.wav") : array
-$sox->formats() : array
-$sox->version() : string
-$sox->visualize("path/to/your/audiofile.wav", "path/to/your/spectrogram_image.png", 1024, 768, (array)[100, 20, 56]) : bool // generate a spectrogram with RGB colour values
+$sox->formats() // array of supported formats
+$sox->version() // string of libsox version
+
+// Load an audio file
+$sox->load(string $file_path = "path/to/your/input_audio_file.wav");
+
+$sox->analyze(); // array of data from the stat() function in libsox
+$sox->visualize(string $export_image_path = "path/to/your/spectrogram_image.png", int $width = 1024, int $height = 768, array $rgb_values = [100, 20, 56]) : bool // generate a spectrogram with RGB colour values
 ```
 
 ### Processing
@@ -47,13 +51,13 @@ $sox->visualize("path/to/your/audiofile.wav", "path/to/your/spectrogram_image.pn
 $sox = new Sox();
 
 // Load an audio file
-$sox->load("path/to/your/input_audio_file.wav");
+$sox->load(string $file_path = "path/to/your/input_audio_file.wav");
 
 $sox->bass() : bool
 $sox->chorus() : bool
 $sox->compressor() : bool
-$sox->concatenate((array )['path/to/audio1.wav', 'path/to/audio2.wav', 'path/to/audio3.wav']) : bool
-$sox->convert("mp3") : bool
+$sox->concatenate(array $chunks = ['path/to/audio1.wav', 'path/to/audio2.wav']) : bool
+$sox->convert(string $format = "mp3") : bool
 $sox->delay() : bool
 $sox->dither() : bool
 $sox->echo() : bool
@@ -74,10 +78,10 @@ $sox->pitch() : bool
 $sox->repeat() : bool
 $sox->reverb() : bool
 $sox->reverse() : bool
-$sox->sample_rate() : bool
-$sox->sample_size() : bool
+$sox->sample_rate(int $hz = 48000) : bool
+$sox->sample_size(int $bits = 16) : bool
 $sox->segment() : bool
-$sox->speed((float) 1.7) : bool
+$sox->speed(float $factor = 1.2) : bool
 $sox->splice() : bool
 $sox->stretch() : bool
 $sox->swap() : bool // channels
@@ -88,7 +92,7 @@ $sox->treble() : bool
 $sox->tremolo() : bool
 $sox->trim() : bool
 $sox->vad() : bool
-$sox->volume() : bool
+$sox->volume(float $factor = 1.5) : bool
 ```
 
 

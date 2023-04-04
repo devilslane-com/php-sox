@@ -1,9 +1,17 @@
 #include "php_sox.h"
 
+typedef struct _php_sox_object {
+    zend_object std;
+    sox_format_t *input_file;
+    sox_format_t *output_file;
+} php_sox_object;
+
 // Define a class entry for the Sox class
 zend_class_entry *sox_ce;
 
-// Declare the Sox class methods
+/********************************************************************************************************************
+  Declare all the methods
+********************************************************************************************************************/
 PHP_METHOD(Sox, __construct);
 PHP_METHOD(Sox, analyze);
 PHP_METHOD(Sox, bass);
@@ -52,7 +60,47 @@ PHP_METHOD(Sox, version);
 PHP_METHOD(Sox, visualize);
 PHP_METHOD(Sox, volume);
 
-// Define the class method list
+/********************************************************************************************************************
+  Define all arguments sent to individual methods
+********************************************************************************************************************/
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_convert, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, output_file_type, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_load, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, input_file_path, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_sample_rate, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, new_sample_rate, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_sample_size, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, new_sample_size, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_save, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, output_file_path, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_speed, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, factor, IS_DOUBLE, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_visualize, 0, 0, 5)
+    ZEND_ARG_TYPE_INFO(0, output_file_path, IS_STRING, 0)
+    ZEND_ARG_TYPE_INFO(0, width, IS_LONG, 0)
+    ZEND_ARG_TYPE_INFO(0, height, IS_LONG, 0)
+    ZEND_ARG_TYPE_INFO(0, rgb, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_volume, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, factor, IS_DOUBLE, 0)
+ZEND_END_ARG_INFO()
+
+/********************************************************************************************************************
+  Define the class method list (class, method, args, access levels)
+********************************************************************************************************************/
 static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, __construct, NULL, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(Sox, analyze, NULL, ZEND_ACC_PUBLIC)
@@ -60,7 +108,7 @@ static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, chorus, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, compressor, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, concatenate, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, convert, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, convert, arginfo_sox_convert, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, delay, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, dither, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, echo, NULL, ZEND_ACC_PUBLIC)
@@ -71,7 +119,7 @@ static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, filter, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, formats, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, gain, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, load, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, load, arginfo_sox_load, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, loudness, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, metadata, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, mix, NULL, ZEND_ACC_PUBLIC)
@@ -83,11 +131,11 @@ static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, repeat, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, reverb, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, reverse, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, sample_rate, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, sample_size, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, save, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, sample_rate, arginfo_sox_sample_rate, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, sample_size, arginfo_sox_sample_size, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, save, arginfo_sox_save, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, segment, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, speed, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, speed, arginfo_sox_speed, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, splice, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, stretch, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, swap, NULL, ZEND_ACC_PUBLIC)
@@ -99,8 +147,8 @@ static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, trim, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, vad, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, version, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, visualize, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, volume, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, visualize, arginfo_sox_visualize, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, volume, arginfo_sox_volume, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
@@ -145,44 +193,68 @@ PHP_METHOD(Sox, __construct)
 }
 
 /********************************************************************************************************************
-  ANALYZE (string $path_to_file)
+  ANALYZE
 ********************************************************************************************************************/
 PHP_METHOD(Sox, analyze)
 {
-    char *input_file_path;
-    size_t input_file_path_len;
+    php_sox_object *obj = Z_SOX_P(getThis());
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &input_file_path, &input_file_path_len) == FAILURE) {
+    if (!obj->input_file) {
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before analyze().", 0 TSRMLS_CC);
         RETURN_FALSE;
     }
 
-    sox_format_t *input_file = sox_open_read(input_file_path, NULL, NULL, NULL);
+    sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &obj->input_file->encoding);
 
-    if (!input_file) {
-        sox_quit();
-        zend_throw_exception(zend_ce_exception, "Failed to open input file", 0 TSRMLS_CC);
-        RETURN_FALSE;
-    }
-
-    sox_effects_chain_t *chain = sox_create_effects_chain(&input_file->encoding, &input_file->encoding);
-    sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
-    char *args[] = { (char *)input_file };
-    sox_effect_options(effect, 1, args);
-    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
-
-    effect = sox_create_effect(sox_find_effect("stat"));
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("stat"));
     sox_effect_options(effect, 0, NULL);
-    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &obj->input_file->signal);
 
-    // Prepare the return array
-    array_init(return_value);
-
-    sox_flow_effects(chain, stat_output_handler, (void *)return_value);
+    sox_flow_effects(chain, NULL, NULL);
 
     // Cleanup
     sox_delete_effects_chain(chain);
-    sox_close(input_file);
-    sox_quit();
+}
+
+/********************************************************************************************************************
+  CONVERT (string $format = 'mp3') 
+********************************************************************************************************************/
+PHP_METHOD(Sox, convert)
+{
+    char *output_file_type;
+    size_t output_file_type_len;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+                              &output_file_type, &output_file_type_len) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    php_sox_object *obj = Z_SOX_P(getThis());
+
+    if (!obj->input_file) {
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before convert().", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    char output_file_path[obj->input_file->filename.len + output_file_type_len + 2];
+    snprintf(output_file_path, sizeof(output_file_path), "%s.%s", obj->input_file->filename.buf, output_file_type);
+
+    sox_format_t *output_file = sox_open_write(output_file_path, &obj->input_file->signal, &obj->input_file->encoding, output_file_type, NULL, NULL);
+    if (!output_file) {
+        zend_throw_exception(zend_ce_exception, "Failed to open output file for writing.", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &output_file->encoding);
+
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("output"));
+    sox_effect_options(effect, 0, NULL);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &output_file->signal);
+
+    sox_flow_effects(chain, NULL, NULL);
+
+    sox_delete_effects_chain(chain);
+    sox_close(output_file);
 }
 
 /********************************************************************************************************************
@@ -218,20 +290,65 @@ PHP_METHOD(Sox, load)
     char *input_file_path;
     size_t input_file_path_len;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &input_file_path, &input_file_path_len) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+                              &input_file_path, &input_file_path_len) == FAILURE) {
         RETURN_FALSE;
     }
 
-    sox_format_t *input_file = sox_open_read(input_file_path, NULL, NULL, NULL);
+    php_sox_object *obj = Z_SOX_P(getThis());
+    obj->input_file = sox_open_read(input_file_path, NULL, NULL, NULL);
 
-    if (!input_file) {
+    if (!obj->input_file) {
         sox_quit();
         zend_throw_exception(zend_ce_exception, "Failed to open input file", 0 TSRMLS_CC);
         RETURN_FALSE;
     }
 
-    // Store the input_file as a property in the Sox object
-    zend_update_property_stringl(sox_ce, getThis(), "input_file", strlen("input_file"), (char *)&input_file, sizeof(sox_format_t) TSRMLS_CC);
+    RETURN_TRUE;
+}
+
+/********************************************************************************************************************
+  SAMPLE_RATE (int $rate_in_HZ = 48000)
+********************************************************************************************************************/
+PHP_METHOD(Sox, sample_rate)
+{
+    zend_long new_sample_rate;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l",
+                              &new_sample_rate) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    php_sox_object *obj = Z_SOX_P(getThis());
+
+    if (!obj->input_file) {
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before change_sample_rate().", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    obj->input_file->signal.rate = new_sample_rate;
+}
+
+/********************************************************************************************************************
+  SAMPLE_SIZE (int $size_in_bits = 16)
+********************************************************************************************************************/
+PHP_METHOD(Sox, sample_size)
+{
+    zend_long new_sample_size;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l",
+                              &new_sample_size) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    php_sox_object *obj = Z_SOX_P(getThis());
+
+    if (!obj->input_file) {
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before change_sample_size().", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    obj->input_file->encoding.bits_per_sample = new_sample_size;
 }
 
 /********************************************************************************************************************
@@ -242,57 +359,77 @@ PHP_METHOD(Sox, save)
     char *output_file_path;
     size_t output_file_path_len;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &output_file_path, &output_file_path_len) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+                              &output_file_path, &output_file_path_len) == FAILURE) {
         RETURN_FALSE;
     }
 
-    sox_format_t *input_file;
-    zval *input_file_zval = zend_read_property(sox_ce, getThis(), "input_file", strlen("input_file"), 0 TSRMLS_CC);
-    if (Z_TYPE_P(input_file_zval) != IS_STRING) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded", 0 TSRMLS_CC);
-        RETURN_FALSE;
-    }
+    php_sox_object *obj = Z_SOX_P(getThis());
 
-    input_file = (sox_format_t *) Z_STRVAL_P(input_file_zval);
+    // Open the output file
+    obj->output_file = sox_open_write(output_file_path, &obj->input_file->signal,
+                                      &obj->input_file->encoding, NULL, NULL, NULL);
 
-    sox_format_t *output_file = sox_open_write(output_file_path, &input_file->signal, NULL, NULL, NULL, NULL);
-
-    if (!output_file) {
+    if (!obj->output_file) {
         sox_quit();
         zend_throw_exception(zend_ce_exception, "Failed to open output file", 0 TSRMLS_CC);
         RETURN_FALSE;
     }
 
-    sox_effects_chain_t *chain = sox_create_effects_chain(&input_file->encoding, &output_file->encoding);
+    // Create and configure the effects chain
+    sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &obj->output_file->encoding);
 
-    if (!chain) {
-        sox_quit();
-        zend_throw_exception(zend_ce_exception, "Failed to create effects chain", 0 TSRMLS_CC);
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
+    char *args[] = {(char *)obj->input_file};
+    sox_effect_options(effect, 1, args);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &obj->output_file->signal);
+
+    effect = sox_create_effect(sox_find_effect("output"));
+    args[0] = (char *)obj->output_file;
+    sox_effect_options(effect, 1, args);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &obj->output_file->signal);
+
+    // Process the audio and save to the output file
+    sox_flow_effects(chain, NULL, NULL);
+
+    // Cleanup
+    sox_delete_effects_chain(chain);
+    sox_close(obj->output_file);
+    sox_close(obj->input_file);
+    sox_quit();
+
+    RETURN_TRUE;
+}
+
+/********************************************************************************************************************
+  SPEED (float $factor = 1.0)
+********************************************************************************************************************/
+PHP_METHOD(Sox, speed)
+{
+    double factor;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &factor) == FAILURE) {
         RETURN_FALSE;
     }
 
-    sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
-    char *args[] = { (char *)input_file };
-    sox_effect_options(effect, 1, args);
-    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
+    php_sox_object *obj = Z_SOX_P(getThis());
+    sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &obj->input_file->encoding);
 
-    // Add other effects here
-
-    effect = sox_create_effect(sox_find_effect("output"));
-    args[0] = (char *)output_file;
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("speed"));
+    char factor_str[16];
+    snprintf(factor_str, sizeof(factor_str), "%.2f", factor);
+    char *args[] = {factor_str};
     sox_effect_options(effect, 1, args);
-    sox_add_effect(chain, effect, &input_file->signal, &output_file->signal);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &obj->input_file->signal);
 
     sox_flow_effects(chain, NULL, NULL);
 
     // Cleanup
     sox_delete_effects_chain(chain);
-    sox_close(output_file);
-    sox_close(input_file);
-    sox_quit();
 
     RETURN_TRUE;
 }
+
 
 /********************************************************************************************************************
   VERSION
@@ -304,97 +441,88 @@ PHP_METHOD(Sox, version)
 }
 
 /********************************************************************************************************************
-  VISUALIZE (string $path_to_file, string $path_to_image_export, int $image_width, int $image_height, array $rgb_values = [0, 0, 0])
+  VISUALIZE (string $path_to_image_export, int $image_width, int $image_height, array $rgb_values = [0, 0, 0])
 ********************************************************************************************************************/
 PHP_METHOD(Sox, visualize)
 {
-    char *input_file_path, *output_file_path;
-    size_t input_file_path_len, output_file_path_len;
-    zval *color_array;
+    char *output_file_path;
+    size_t output_file_path_len;
     zend_long width, height;
+    zval *rgb_array;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ssll|a",
-                              &input_file_path, &input_file_path_len,
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sllA",
                               &output_file_path, &output_file_path_len,
-                              &width, &height,
-                              &color_array) == FAILURE) {
+                              &width, &height, &rgb_array) == FAILURE) {
         RETURN_FALSE;
     }
 
-    char colors[32] = {0};
-    if (color_array) {
-        int r, g, b;
-        if (zend_hash_index_find(Z_ARRVAL_P(color_array), 0) != NULL) {
-            r = Z_LVAL_P(zend_hash_index_find(Z_ARRVAL_P(color_array), 0));
-        }
-        if (zend_hash_index_find(Z_ARRVAL_P(color_array), 1) != NULL) {
-            g = Z_LVAL_P(zend_hash_index_find(Z_ARRVAL_P(color_array), 1));
-        }
-        if (zend_hash_index_find(Z_ARRVAL_P(color_array), 2) != NULL) {
-            b = Z_LVAL_P(zend_hash_index_find(Z_ARRVAL_P(color_array), 2));
-        }
-        snprintf(colors, sizeof(colors), "%d %d %d", r, g, b);
-    }
+    php_sox_object *obj = Z_SOX_P(getThis());
 
-    sox_format_t *input_file = sox_open_read(input_file_path, NULL, NULL, NULL);
-
-    if (!input_file) {
-        sox_quit();
-        zend_throw_exception(zend_ce_exception, "Failed to open input file", 0 TSRMLS_CC);
+    if (!obj->input_file) {
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before visualize().", 0 TSRMLS_CC);
         RETURN_FALSE;
     }
 
-    sox_format_t *output_file = sox_open_write(output_file_path, &input_file->signal, &input_file->encoding, "png", NULL, NULL);
+    // Extract the RGB color values from the array
+    HashTable *rgb_hash = Z_ARRVAL_P(rgb_array);
+    zval *r, *g, *b;
 
-    if (!output_file) {
-        sox_quit();
-        zend_throw_exception(zend_ce_exception, "Failed to open output file", 0 TSRMLS_CC);
+    r = zend_hash_index_find(rgb_hash, 0);
+    g = zend_hash_index_find(rgb_hash, 1);
+    b = zend_hash_index_find(rgb_hash, 2);
+
+    if (!r || !g || !b) {
+        zend_throw_exception(zend_ce_exception, "Invalid RGB array. It must contain 3 integer values.", 0 TSRMLS_CC);
         RETURN_FALSE;
     }
 
-    sox_effects_chain_t *chain = sox_create_effects_chain(&input_file->encoding, &output_file->encoding);
-
-    sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
-    char *args[] = {(char *)input_file};
-    sox_effect_options(effect, 1, args);
-    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
-
-    effect = sox_create_effect(sox_find_effect("spectrogram"));
-
-    char width_str[16];
+    // Construct the command line arguments for the spectrogram effect
+    char width_str[16], height_str[16], r_str[16], g_str[16], b_str[16];
     snprintf(width_str, sizeof(width_str), "%ld", width);
-
-    char height_str[16];
     snprintf(height_str, sizeof(height_str), "%ld", height);
+    snprintf(r_str, sizeof(r_str), "%ld", Z_LVAL_P(r));
+    snprintf(g_str, sizeof(g_str), "%ld", Z_LVAL_P(g));
+    snprintf(b_str, sizeof(b_str), "%ld", Z_LVAL_P(b));
 
-    char *spectrogram_args[8];
-    spectrogram_args[0] = "-t";
-    spectrogram_args[1] = "Waveform";
-    spectrogram_args[2] = "-x";
-    spectrogram_args[3] = width_str;
-    spectrogram_args[4] = "-y";
-    spectrogram_args[5] = height_str;
-    spectrogram_args[6] = color_array ? "-c" : NULL;
-    spectrogram_args[7] = color_array ? colors : NULL;
+    char *args[] = {"-o", output_file_path, "-w", width_str, "-h", height_str, "-r", r_str, "-g", g_str, "-b", b_str};
 
-    size_t spectrogram_args_count = color_array ? 8 : 6;
+    sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &obj->input_file->encoding);
 
-    sox_effect_options(effect, spectrogram_args_count, spectrogram_args);
-    
-    sox_add_effect(chain, effect, &input_file->signal, &output_file->signal);
-
-    effect = sox_create_effect(sox_find_effect("output"));
-    args[0] = (char *)output_file;
-    sox_effect_options(effect, 1, args);
-    sox_add_effect(chain, effect, &input_file->signal, &output_file->signal);
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("spectrogram"));
+    sox_effect_options(effect, sizeof(args) / sizeof(args[0]), args);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &obj->input_file->signal);
 
     sox_flow_effects(chain, NULL, NULL);
 
     // Cleanup
     sox_delete_effects_chain(chain);
-    sox_close(output_file);
-    sox_close(input_file);
-    sox_quit();
+}
+
+/********************************************************************************************************************
+  VOLUME (float $factor = 1.0)
+********************************************************************************************************************/
+PHP_METHOD(Sox, volume)
+{
+    double factor;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &factor) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    php_sox_object *obj = Z_SOX_P(getThis());
+    sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &obj->input_file->encoding);
+
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("vol"));
+    char factor_str[16];
+    snprintf(factor_str, sizeof(factor_str), "%.2f", factor);
+    char *args[] = {factor_str};
+    sox_effect_options(effect, 1, args);
+    sox_add_effect(chain, effect, &obj->input_file->signal, &obj->input_file->signal);
+
+    sox_flow_effects(chain, NULL, NULL);
+
+    // Cleanup
+    sox_delete_effects_chain(chain);
 
     RETURN_TRUE;
 }
