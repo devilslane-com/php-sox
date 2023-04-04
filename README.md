@@ -37,7 +37,7 @@ $sox = new Sox();
 $sox->analyze("path/to/your/audiofile.wav") : array
 $sox->formats() : array
 $sox->version() : string
-$sox->visualize("path/to/your/audiofile.wav", "path/to/your/spectrogram_image.png") : bool // generate a spectrogram
+$sox->visualize("path/to/your/audiofile.wav", "path/to/your/spectrogram_image.png", 1024, 768, (array)[100, 20, 56]) : bool // generate a spectrogram with RGB colour values
 ```
 
 ### Processing

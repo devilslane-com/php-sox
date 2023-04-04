@@ -24,7 +24,7 @@ PHP_METHOD(Sox, convert);
 PHP_METHOD(Sox, delay);
 PHP_METHOD(Sox, dither);
 PHP_METHOD(Sox, echo);
-PHP_METHOD(Sox, EQ);
+PHP_METHOD(Sox, eq);
 PHP_METHOD(Sox, extract_left);
 PHP_METHOD(Sox, extract_right);
 PHP_METHOD(Sox, fade);

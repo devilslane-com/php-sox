@@ -14,7 +14,7 @@ PHP_METHOD(Sox, convert);
 PHP_METHOD(Sox, delay);
 PHP_METHOD(Sox, dither);
 PHP_METHOD(Sox, echo);
-PHP_METHOD(Sox, EQ);
+PHP_METHOD(Sox, eq);
 PHP_METHOD(Sox, extract_left);
 PHP_METHOD(Sox, extract_right);
 PHP_METHOD(Sox, fade);
@@ -64,7 +64,7 @@ static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, delay, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, dither, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, echo, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, EQ, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, eq, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, extract_left, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, extract_right, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, fade, NULL, ZEND_ACC_PUBLIC)
@@ -139,6 +139,67 @@ PHP_METHOD(Sox, __construct)
     if (sox_init() != SOX_SUCCESS) {
         zend_throw_exception(zend_ce_exception, "Failed to initialize SoX library", 0 TSRMLS_CC);
         return;
+    }
+}
+
+PHP_METHOD(Sox, analyze)
+{
+    char *input_file_path;
+    size_t input_file_path_len;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &input_file_path, &input_file_path_len) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    sox_format_t *input_file = sox_open_read(input_file_path, NULL, NULL, NULL);
+
+    if (!input_file) {
+        sox_quit();
+        zend_throw_exception(zend_ce_exception, "Failed to open input file", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    sox_effects_chain_t *chain = sox_create_effects_chain(&input_file->encoding, &input_file->encoding);
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
+    char *args[] = { (char *)input_file };
+    sox_effect_options(effect, 1, args);
+    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
+
+    effect = sox_create_effect(sox_find_effect("stat"));
+    sox_effect_options(effect, 0, NULL);
+    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
+
+    // Prepare the return array
+    array_init(return_value);
+
+    sox_flow_effects(chain, stat_output_handler, (void *)return_value);
+
+    // Cleanup
+    sox_delete_effects_chain(chain);
+    sox_close(input_file);
+    sox_quit();
+}
+
+// Sox class method: getSupportedFormats
+PHP_METHOD(Sox, getSupportedFormats)
+{
+    sox_format_tab_t const *formats = sox_get_format_fns();
+    array_init(return_value);
+
+    while (formats->fn) {
+        sox_format_fns_info_t format_info;
+        sox_format_info(formats, &format_info);
+
+        zval format_array;
+        array_init(&format_array);
+
+        add_assoc_string(&format_array, "name", format_info.name);
+        add_assoc_string(&format_array, "description", format_info.description);
+        add_assoc_string(&format_array, "flags", format_info.flags);
+        
+        add_next_index_zval(return_value, &format_array);
+
+        ++formats;
     }
 }
 
@@ -220,4 +281,127 @@ PHP_METHOD(Sox, save)
     sox_quit();
 
     RETURN_TRUE;
+}
+
+PHP_METHOD(Sox, version)
+{
+    const char *version = sox_version_info();
+    RETURN_STRING(version);
+}
+
+PHP_METHOD(Sox, visualize)
+{
+    char *input_file_path, *output_file_path;
+    size_t input_file_path_len, output_file_path_len;
+    zval *color_array;
+    zend_long width, height;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ssll|a",
+                              &input_file_path, &input_file_path_len,
+                              &output_file_path, &output_file_path_len,
+                              &width, &height,
+                              &color_array) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    char colors[32] = {0};
+    if (color_array) {
+        int r, g, b;
+        if (zend_hash_index_find(Z_ARRVAL_P(color_array), 0) != NULL) {
+            r = Z_LVAL_P(zend_hash_index_find(Z_ARRVAL_P(color_array), 0));
+        }
+        if (zend_hash_index_find(Z_ARRVAL_P(color_array), 1) != NULL) {
+            g = Z_LVAL_P(zend_hash_index_find(Z_ARRVAL_P(color_array), 1));
+        }
+        if (zend_hash_index_find(Z_ARRVAL_P(color_array), 2) != NULL) {
+            b = Z_LVAL_P(zend_hash_index_find(Z_ARRVAL_P(color_array), 2));
+        }
+        snprintf(colors, sizeof(colors), "%d %d %d", r, g, b);
+    }
+
+    sox_format_t *input_file = sox_open_read(input_file_path, NULL, NULL, NULL);
+
+    if (!input_file) {
+        sox_quit();
+        zend_throw_exception(zend_ce_exception, "Failed to open input file", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    sox_format_t *output_file = sox_open_write(output_file_path, &input_file->signal, &input_file->encoding, "png", NULL, NULL);
+
+    if (!output_file) {
+        sox_quit();
+        zend_throw_exception(zend_ce_exception, "Failed to open output file", 0 TSRMLS_CC);
+        RETURN_FALSE;
+    }
+
+    sox_effects_chain_t *chain = sox_create_effects_chain(&input_file->encoding, &output_file->encoding);
+
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
+    char *args[] = {(char *)input_file};
+    sox_effect_options(effect, 1, args);
+    sox_add_effect(chain, effect, &input_file->signal, &input_file->signal);
+
+    effect = sox_create_effect(sox_find_effect("spectrogram"));
+
+    char width_str[16];
+    snprintf(width_str, sizeof(width_str), "%ld", width);
+
+    char height_str[16];
+    snprintf(height_str, sizeof(height_str), "%ld", height);
+
+    char *spectrogram_args[8];
+    spectrogram_args[0] = "-t";
+    spectrogram_args[1] = "Waveform";
+    spectrogram_args[2] = "-x";
+    spectrogram_args[3] = width_str;
+    spectrogram_args[4] = "-y";
+    spectrogram_args[5] = height_str;
+    spectrogram_args[6] = color_array ? "-c" : NULL;
+    spectrogram_args[7] = color_array ? colors : NULL;
+
+    size_t spectrogram_args_count = color_array ? 8 : 6;
+
+    sox_effect_options(effect, spectrogram_args_count, spectrogram_args);
+    
+    sox_add_effect(chain, effect, &input_file->signal, &output_file->signal);
+
+    effect = sox_create_effect(sox_find_effect("output"));
+    args[0] = (char *)output_file;
+    sox_effect_options(effect, 1, args);
+    sox_add_effect(chain, effect, &input_file->signal, &output_file->signal);
+
+    sox_flow_effects(chain, NULL, NULL);
+
+    // Cleanup
+    sox_delete_effects_chain(chain);
+    sox_close(output_file);
+    sox_close(input_file);
+    sox_quit();
+
+    RETURN_TRUE;
+}
+
+// Custom output handler for stat effect
+static int stat_output_handler(sox_bool all_done, void *client_data)
+{
+    zval *return_array = (zval *)client_data;
+
+    if (!all_done) {
+        char buffer[1024];
+        fgets(buffer, sizeof(buffer), stdin);
+
+        if (feof(stdin) || ferror(stdin)) {
+            return SOX_EOF;
+        }
+
+        char key[128];
+        double value;
+
+        if (sscanf(buffer, "%127[^:]:%lf", key, &value) == 2) {
+            add_assoc_double(return_array, key, value);
+        }
+    }
+
+    return SOX_SUCCESS;
 }
