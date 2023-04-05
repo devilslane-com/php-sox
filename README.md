@@ -2,6 +2,8 @@
 
 This extension provides bindings for the SoX (Sound eXchange) library, enabling audio processing capabilities in PHP.
 
+Author: Alex Cameron <acamerondev@protonmail.com>
+
 ## Requirements
 
 - PHP development environment (header files and libraries)
