@@ -1,14 +1,23 @@
+// php_sox.h
 #ifndef PHP_SOX_H
-#define PHP_SOX_H 1
+#define PHP_SOX_H
 
 #include "php.h"
 #include "sox.h"
 
-#define PHP_SOX_VERSION "1.0"
-#define PHP_SOX_EXTNAME "sox"
-
 extern zend_module_entry sox_module_entry;
 #define phpext_sox_ptr &sox_module_entry
+
+#define PHP_SOX_VERSION "0.1.0"
+#define PHP_SOX_EXTNAME "sox"
+#define Z_SOX_P(zv) php_sox_fetch_object(Z_OBJ_P(zv))
+
+// Declare functions here
+PHP_MINIT_FUNCTION(sox);
+PHP_MSHUTDOWN_FUNCTION(sox);
+PHP_RINIT_FUNCTION(sox);
+PHP_RSHUTDOWN_FUNCTION(sox);
+PHP_MINFO_FUNCTION(sox);
 
 // Define a class entry for the Sox class
 zend_class_entry *sox_ce;

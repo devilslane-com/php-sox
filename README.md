@@ -1,4 +1,4 @@
-# Sound eXchange (Sox) Audio Extension for PHP
+# Sound eXchange (Sox) Audio Extension for PHP 8.1
 
 This extension provides bindings for the SoX (Sound eXchange) library, enabling audio processing capabilities in PHP.
 
@@ -7,7 +7,17 @@ Author: Alex Cameron <acamerondev@protonmail.com>
 ## Requirements
 
 - PHP development environment (header files and libraries)
-- SoX library and development files (header files and libraries)
+- SoX library and development files (header files and libraries, usually in /usr/include/sox.h)
+
+This was developed against SoX v14.4.2 and the following PHP version:
+
+```
+PHP 8.1.10 (cli) (built: Sep 18 2022 10:25:43) (NTS)
+Copyright (c) The PHP Group
+Zend Engine v4.1.10, Copyright (c) Zend Technologies
+    with Zend OPcache v8.1.10, Copyright (c), by Zend Technologies
+
+```
 
 ## What is Sox?
 

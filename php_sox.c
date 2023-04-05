@@ -1,13 +1,29 @@
 #include "php_sox.h"
+#include "ext/standard/info.h"
+#include "Zend/zend_exceptions.h"
+
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
+void php_sox_object_free_obj(zend_object *object);
 
 typedef struct _php_sox_object {
     zend_object std;
+    zend_string *input_filename;
     sox_format_t *input_file;
     sox_format_t *output_file;
+    sox_effects_chain_t *chain;
+    sox_signalinfo_t signal_info;
+    sox_encodinginfo_t encoding_info;
+    sox_format_t *output;
+    size_t buffer_size;
+    char *buffer;
+    const char *filetype;
 } php_sox_object;
 
 // Define a class entry for the Sox class
 zend_class_entry *sox_ce;
+
+zend_object_handlers php_sox_object_handlers;
 
 /********************************************************************************************************************
   Declare all the methods
@@ -318,33 +334,63 @@ static const zend_function_entry sox_methods[] = {
     PHP_FE_END
 };
 
+
+PHP_MINIT_FUNCTION(sox)
+{
+    zend_class_entry ce;
+    INIT_CLASS_ENTRY(ce, "Sox", sox_methods);
+    sox_ce = zend_register_internal_class(&ce);
+
+    php_sox_object_create_handler();
+
+    return SUCCESS;
+}
+
+PHP_MSHUTDOWN_FUNCTION(sox)
+{
+    return SUCCESS;
+}
+
+PHP_RINIT_FUNCTION(sox)
+{
+
+    return SUCCESS;
+}
+
+PHP_RSHUTDOWN_FUNCTION(sox)
+{
+
+    return SUCCESS;
+}
+
+PHP_MINFO_FUNCTION(sox)
+{
+    // Your module info code here
+    php_info_print_table_start();
+    php_info_print_table_header(2, "sox support", "enabled");
+    php_info_print_table_end();
+}
+
 // Module entry
 zend_module_entry sox_module_entry = {
     STANDARD_MODULE_HEADER,
-    PHP_SOX_EXTNAME,
-    NULL,                  /* Functions */
-    PHP_MINIT(sox),        /* MINIT */
-    NULL,                  /* MSHUTDOWN */
-    NULL,                  /* RINIT */
-    NULL,                  /* RSHUTDOWN */
-    NULL,                  /* MINFO */
+    "sox",
+    NULL,                         /* Functions */
+    PHP_MINIT(sox),               /* MINIT */
+    PHP_MSHUTDOWN(sox),           /* MSHUTDOWN */
+    PHP_RINIT(sox),               /* RINIT */
+    PHP_RSHUTDOWN(sox),           /* RSHUTDOWN */
+    PHP_MINFO(sox),               /* MINFO */
     PHP_SOX_VERSION,
     STANDARD_MODULE_PROPERTIES
 };
 
-// Implement the entry point symbol
+#ifdef COMPILE_DL_SOX
+#ifdef ZTS
+ZEND_TSRMLS_CACHE_DEFINE()
+#endif
 ZEND_GET_MODULE(sox)
-
-// Initialize the module
-PHP_MINIT_FUNCTION(sox)
-{
-    // Initialize the Sox class
-    zend_class_entry ce;
-    INIT_CLASS_ENTRY(ce, "Sox", sox_methods);
-    sox_ce = zend_register_internal_class(&ce TSRMLS_CC);
-
-    return SUCCESS;
-}
+#endif
 
 /********************************************************************************************************************
   CONSTRUCTOR
@@ -353,7 +399,7 @@ PHP_METHOD(Sox, __construct)
 {
     // Initialize the SoX library
     if (sox_init() != SOX_SUCCESS) {
-        zend_throw_exception(zend_ce_exception, "Failed to initialize SoX library", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Failed to initialize SoX library", 0);
         return;
     }
 }
@@ -366,7 +412,7 @@ PHP_METHOD(Sox, analyze)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before analyze().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before analyze().", 0);
         RETURN_FALSE;
     }
 
@@ -389,7 +435,7 @@ PHP_METHOD(Sox, bass)
 {
     double gain_db, freq, width;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ddd", &gain_db, &freq, &width) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "ddd", &gain_db, &freq, &width) == FAILURE) {
         RETURN_NULL();
     }
 
@@ -464,7 +510,7 @@ PHP_METHOD(Sox, concatenate)
 {
     zval *files_array;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &files_array) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &files_array) == FAILURE) {
         RETURN_FALSE;
     }
 
@@ -478,38 +524,76 @@ PHP_METHOD(Sox, concatenate)
     int tmp_fd = mkstemp(tmp_template);
 
     if (tmp_fd == -1) {
-        zend_throw_exception(zend_ce_exception, "Failed to create temporary file.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Failed to create temporary file.", 0);
         RETURN_FALSE;
     }
 
     close(tmp_fd);
 
-    sox_format_t *output = sox_open_write(tmp_template, NULL, NULL, NULL);
-
-    if (!output) {
-        zend_throw_exception(zend_ce_exception, "Failed to open output file.", 0 TSRMLS_CC);
-        RETURN_FALSE;
-    }
+    sox_signalinfo_t signal = {0};
+    sox_encodinginfo_t encoding = {0};
+    sox_oob_t oob = {0};
 
     HashTable *files_table = Z_ARRVAL_P(files_array);
     zval *file;
     ZEND_HASH_FOREACH_VAL(files_table, file)
     {
         if (Z_TYPE_P(file) != IS_STRING) {
-            zend_throw_exception(zend_ce_exception, "All elements in the input array must be file paths (strings).", 0 TSRMLS_CC);
-            sox_close(output);
+            zend_throw_exception(zend_ce_exception, "All elements in the input array must be file paths (strings).", 0);
             RETURN_FALSE;
         }
 
         sox_format_t *input = sox_open_read(Z_STRVAL_P(file), NULL, NULL, NULL);
 
         if (!input) {
-            zend_throw_exception_ex(zend_ce_exception, 0 TSRMLS_CC, "Failed to open input file: %s", Z_STRVAL_P(file));
+            zend_throw_exception_ex(zend_ce_exception, 0 , "Failed to open input file: %s", Z_STRVAL_P(file));
+            RETURN_FALSE;
+        }
+
+        // Combine signal properties of input files
+        if (signal.rate == 0) {
+            signal.rate = input->signal.rate;
+        } else if (signal.rate != input->signal.rate) {
+            zend_throw_exception(zend_ce_exception, "All input files must have the same sample rate.", 0);
+            sox_close(input);
+            RETURN_FALSE;
+        }
+
+        signal.channels = input->signal.channels;
+        signal.length += input->signal.length;
+
+        // Combine encoding properties of input files
+        if (encoding.encoding == SOX_ENCODING_UNKNOWN) {
+            encoding.encoding = input->encoding.encoding;
+            encoding.bits_per_sample = input->encoding.bits_per_sample;
+        } else if (encoding.encoding != input->encoding.encoding || encoding.bits_per_sample != input->encoding.bits_per_sample) {
+            zend_throw_exception(zend_ce_exception, "All input files must have the same encoding and bits per sample.", 0);
+            sox_close(input);
+            RETURN_FALSE;
+        }
+
+        sox_close(input);
+    }
+    ZEND_HASH_FOREACH_END();
+
+    sox_format_t *output = sox_open_write(tmp_template, &signal, &encoding, NULL, &oob, sox_false);
+
+    if (!output) {
+        zend_throw_exception(zend_ce_exception, "Failed to open output file.", 0);
+        RETURN_FALSE;
+    }
+
+    ZEND_HASH_FOREACH_VAL(files_table, file)
+    {
+        sox_format_t *input = sox_open_read(Z_STRVAL_P(file), NULL, NULL, NULL);
+
+        if (!input) {
+            zend_throw_exception_ex(zend_ce_exception, 0 , "Failed to open input file: %s", Z_STRVAL_P(file));
             sox_close(output);
             RETURN_FALSE;
         }
 
-        sox_effects_chain_t *chain = sox_create_effects_chain(&sox_globals.input_encoding, &output->encoding);
+        sox_effects_chain_t *chain = sox_create_effects_chain(&input->encoding, &output->encoding);
         sox_effect_t *effect = sox_create_effect(sox_find_effect("input"));
         sox_effect_options(effect, 1, (char **)&input);
         sox_add_effect(chain, effect, &input->signal, &input->signal);
@@ -529,11 +613,12 @@ PHP_METHOD(Sox, concatenate)
     obj->input_file = sox_open_read(tmp_template, NULL, NULL, NULL);
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "Failed to open temporary file.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Failed to open temporary file.", 0);
         RETURN_FALSE;
     }
 
     unlink(tmp_template);
+
 }
 
 /********************************************************************************************************************
@@ -545,7 +630,7 @@ PHP_METHOD(Sox, convert)
     size_t output_file_type_len;
     zend_long bitrate;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl",
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "sl",
                               &output_file_type, &output_file_type_len,
                               &bitrate) == FAILURE) {
         RETURN_FALSE;
@@ -554,12 +639,12 @@ PHP_METHOD(Sox, convert)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before convert().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before convert().", 0);
         RETURN_FALSE;
     }
 
-    char output_file_path[obj->input_file->filename.len + output_file_type_len + 2];
-    snprintf(output_file_path, sizeof(output_file_path), "%s.%s", obj->input_file->filename.buf, output_file_type);
+    char output_file_path[ZSTR_LEN(obj->input_filename) + output_file_type_len + 2];
+    snprintf(output_file_path, sizeof(output_file_path), "%s.%s", ZSTR_VAL(obj->input_filename), output_file_type);
 
     sox_format_t *output_file = sox_open_write(output_file_path, &obj->input_file->signal, &obj->input_file->encoding, output_file_type, NULL, NULL);
     output_file->encoding.compression = bitrate / 1000.0;
@@ -579,7 +664,7 @@ PHP_METHOD(Sox, convert)
 /********************************************************************************************************************
   DELAY (float $position_ms = 200, float $delay_time_ms = 500, int $repetitions = 5)
 ********************************************************************************************************************/
-static PHP_METHOD(Sox, delay)
+PHP_METHOD(Sox, delay)
 {
     php_sox_object *intern;
     double position, delay_time;
@@ -618,7 +703,7 @@ PHP_METHOD(Sox, dither)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -668,7 +753,7 @@ PHP_METHOD(Sox, extract_left)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before extract_left().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before extract_left().", 0);
         RETURN_FALSE;
     }
 
@@ -686,7 +771,7 @@ PHP_METHOD(Sox, extract_right)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before extract_right().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before extract_right().", 0);
         RETURN_FALSE;
     }
 
@@ -706,19 +791,20 @@ PHP_METHOD(Sox, fade)
     double length;
 
     ZEND_PARSE_PARAMETERS_START(2, 2)
-        Z_PARAM_STRING(type, type_len)
+        Z_PARAM_STR(type)
+        Z_PARAM_STR(type_len)
         Z_PARAM_DOUBLE(length)
     ZEND_PARSE_PARAMETERS_END();
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
     if (strcmp(type, "in") != 0 && strcmp(type, "out") != 0) {
-        zend_throw_exception(zend_ce_exception, "Invalid fade type. Use 'in' or 'out'.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Invalid fade type. Use 'in' or 'out'.", 0);
         RETURN_FALSE;
     }
 
@@ -745,9 +831,9 @@ PHP_METHOD(Sox, flanger)
         Z_PARAM_DOUBLE(regen)
         Z_PARAM_DOUBLE(width)
         Z_PARAM_DOUBLE(speed)
-        Z_PARAM_STRING(shape)
-        Z_PARAM_STRING(phase)
-        Z_PARAM_STRING(interpolation)
+        Z_PARAM_STR(shape)
+        Z_PARAM_STR(phase)
+        Z_PARAM_STR(interpolation)
     ZEND_PARSE_PARAMETERS_END();
 
     apply_flanger_effect(getThis(), delay, depth, regen, width, speed, shape, phase, interpolation);
@@ -762,7 +848,7 @@ PHP_METHOD(Sox, filter)
     double frequency, width;
     size_t filter_type_len;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sdd", &filter_type, &filter_type_len, &frequency, &width) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "sdd", &filter_type, &filter_type_len, &frequency, &width) == FAILURE) {
         RETURN_NULL();
     }
 
@@ -788,15 +874,15 @@ PHP_METHOD(Sox, formats)
     array_init(return_value);
 
     while (formats->fn) {
-        sox_format_fns_info_t format_info;
-        sox_format_info(formats, &format_info);
-
         zval format_array;
         array_init(&format_array);
 
-        add_assoc_string(&format_array, "name", format_info.name);
-        add_assoc_string(&format_array, "description", format_info.description);
-        add_assoc_string(&format_array, "flags", format_info.flags);
+        add_assoc_string(&format_array, "name", formats->name);
+
+        // It's not possible to get a description and flags directly from libsox.
+        // You might want to create a custom description and flags mapping if necessary.
+        add_assoc_string(&format_array, "description", "Not available");
+        add_assoc_string(&format_array, "flags", "Not available");
         
         add_next_index_zval(return_value, &format_array);
 
@@ -811,14 +897,14 @@ PHP_METHOD(Sox, gain)
 {
     double decibels;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &decibels) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "d", &decibels) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before gain().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before gain().", 0);
         RETURN_FALSE;
     }
 
@@ -836,7 +922,7 @@ PHP_METHOD(Sox, load)
     char *input_file_path;
     size_t input_file_path_len;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "s",
                               &input_file_path, &input_file_path_len) == FAILURE) {
         RETURN_FALSE;
     }
@@ -846,9 +932,11 @@ PHP_METHOD(Sox, load)
 
     if (!obj->input_file) {
         sox_quit();
-        zend_throw_exception(zend_ce_exception, "Failed to open input file", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Failed to open input file", 0);
         RETURN_FALSE;
     }
+
+    obj->input_filename = zend_string_init(input_file_path, input_file_path_len, 0); // Add this line
 
     RETURN_TRUE;
 }
@@ -860,14 +948,14 @@ PHP_METHOD(Sox, loudness)
 {
     double gain, reference;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "dd", &gain, &reference) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "dd", &gain, &reference) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before loudness().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before loudness().", 0);
         RETURN_FALSE;
     }
 
@@ -881,14 +969,14 @@ PHP_METHOD(Sox, metadata)
 {
     zval *metadata;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &metadata) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "a", &metadata) == FAILURE) {
         RETURN_FALSE;
     }
     
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -908,21 +996,80 @@ PHP_METHOD(Sox, metadata)
 /********************************************************************************************************************
   MIX (array $files = ['audio1.wav', 'audio2.wav'])
 ********************************************************************************************************************/
-PHP_METHOD(Sox, mix) 
+PHP_METHOD(Sox, mix)
 {
     zval *input_array;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &input_array) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &input_array) == FAILURE) {
         RETURN_NULL();
     }
 
     php_sox_object *intern = Z_SOX_P(getThis());
-    sox_format_t *combined = sox_open_memstream_write(&intern->buffer, &intern->buffer_size, &intern->signal_info, &intern->encoding_info, intern->filetype, NULL);
 
-    sox_mix_params_t mix_params;
-    mix_params.weights_type = sox_mix_weights_none;
-    sox_mix(&combined, 1, (char **)&input_array, &mix_params);
+    HashTable *files_table = Z_ARRVAL_P(input_array);
+    uint32_t num_inputs = zend_hash_num_elements(files_table);
 
-    intern->output = combined;
+    if (num_inputs != 2) {
+        zend_throw_exception(zend_ce_exception, "Input array must contain exactly two file paths.", 0);
+        RETURN_NULL();
+    }
+
+    sox_format_t *inputs[2];
+    zval *file;
+    int i = 0;
+
+    ZEND_HASH_FOREACH_VAL(files_table, file)
+    {
+        if (Z_TYPE_P(file) != IS_STRING) {
+            zend_throw_exception(zend_ce_exception, "All elements in the input array must be file paths (strings).", 0);
+            RETURN_NULL();
+        }
+
+        inputs[i] = sox_open_read(Z_STRVAL_P(file), NULL, NULL, NULL);
+        if (!inputs[i]) {
+            zend_throw_exception_ex(zend_ce_exception, 0 , "Failed to open input file: %s", Z_STRVAL_P(file));
+            RETURN_NULL();
+        }
+
+        i++;
+    }
+    ZEND_HASH_FOREACH_END();
+
+    sox_signalinfo_t signal;
+
+    signal.rate = max(inputs[0]->signal.rate, inputs[1]->signal.rate);
+    signal.channels = max(inputs[0]->signal.channels, inputs[1]->signal.channels);
+    signal.precision = max(inputs[0]->signal.precision, inputs[1]->signal.precision);
+    signal.length = SOX_UNSPEC;
+    signal.mult = NULL;
+
+    sox_encodinginfo_t encoding = inputs[0]->encoding;
+
+    sox_format_t *output = sox_open_memstream_write(&intern->buffer, &intern->buffer_size, &signal, &encoding, NULL, NULL);
+    if (!output) {
+        zend_throw_exception(zend_ce_exception, "Failed to open output stream.", 0);
+        sox_close(inputs[0]);
+        sox_close(inputs[1]);
+        RETURN_NULL();
+    }
+
+    size_t num_samples;
+    sox_sample_t samples[2][4096];
+    do {
+        num_samples = sox_read(inputs[0], samples[0], 4096);
+        num_samples += sox_read(inputs[1], samples[1], 4096);
+
+        for (size_t i = 0; i < num_samples; i++) {
+            samples[0][i] = SOX_SAMPLE_TO_SIGNED_32BIT((SOX_SAMPLE_TO_SIGNED_32BIT(samples[0][i], NULL) + SOX_SAMPLE_TO_SIGNED_32BIT(samples[1][i], NULL)), NULL);
+        }
+
+        sox_write(output, samples[0], num_samples);
+    } while (num_samples > 0);
+
+    sox_close(inputs[0]);
+    sox_close(inputs[1]);
+    sox_close(output);
+
+    intern->output = sox_open_memstream_read(&intern->buffer, intern->buffer_size, &signal, &encoding, NULL);
 }
 
 /********************************************************************************************************************
@@ -933,14 +1080,14 @@ PHP_METHOD(Sox, noise)
     long start, duration;
     double sensitivity;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "lld", &start, &duration, &sensitivity) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "lld", &start, &duration, &sensitivity) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -949,7 +1096,7 @@ PHP_METHOD(Sox, noise)
     int tmp_profile_fd = mkstemp(tmp_profile_template);
 
     if (tmp_profile_fd == -1) {
-        zend_throw_exception(zend_ce_exception, "Failed to create temporary noise profile file.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Failed to create temporary noise profile file.", 0);
         RETURN_FALSE;
     }
 
@@ -1004,7 +1151,7 @@ PHP_METHOD(Sox, normalize)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -1024,14 +1171,14 @@ PHP_METHOD(Sox, pad)
 {
     long start, end;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &start, &end) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "ll", &start, &end) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -1040,7 +1187,7 @@ PHP_METHOD(Sox, pad)
     asprintf(&start_str, "%ld", start);
     asprintf(&end_str, "%ld", end);
     char *pad_args[] = {start_str, end_str};
-    apply_single_effect(obj, "pad", 2, pad_args TSRMLS_CC);
+    apply_single_effect(obj, "pad", 2, pad_args);
     free(start_str);
     free(end_str);
 }
@@ -1070,14 +1217,14 @@ PHP_METHOD(Sox, pitch)
 {
     double hertz;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &hertz) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "d", &hertz) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -1085,7 +1232,7 @@ PHP_METHOD(Sox, pitch)
     char cents_str[32];
     snprintf(cents_str, sizeof(cents_str), "%f", cents);
     char *pitch_args[] = {cents_str};
-    apply_single_effect(obj, "pitch", 1, pitch_args TSRMLS_CC);
+    apply_single_effect(obj, "pitch", 1, pitch_args);
 }
 
 /********************************************************************************************************************
@@ -1095,21 +1242,21 @@ PHP_METHOD(Sox, repeat)
 {
     long count;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &count) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "l", &count) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
     char count_str[32];
     snprintf(count_str, sizeof(count_str), "%ld", count);
     char *repeat_args[] = {count_str};
-    apply_single_effect(obj, "repeat", 1, repeat_args TSRMLS_CC);
+    apply_single_effect(obj, "repeat", 1, repeat_args);
 }
 
 /********************************************************************************************************************
@@ -1139,7 +1286,7 @@ PHP_METHOD(Sox, reverse)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before reverse().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before reverse().", 0);
         RETURN_FALSE;
     }
 
@@ -1156,7 +1303,7 @@ PHP_METHOD(Sox, sample_rate)
 {
     zend_long new_sample_rate;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l",
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "l",
                               &new_sample_rate) == FAILURE) {
         RETURN_FALSE;
     }
@@ -1164,7 +1311,7 @@ PHP_METHOD(Sox, sample_rate)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before sample_rate().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before sample_rate().", 0);
         RETURN_FALSE;
     }
 
@@ -1178,7 +1325,7 @@ PHP_METHOD(Sox, sample_size)
 {
     zend_long new_sample_size;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l",
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "l",
                               &new_sample_size) == FAILURE) {
         RETURN_FALSE;
     }
@@ -1186,7 +1333,7 @@ PHP_METHOD(Sox, sample_size)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before sample_size().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before sample_size().", 0);
         RETURN_FALSE;
     }
 
@@ -1201,7 +1348,7 @@ PHP_METHOD(Sox, save)
     char *output_file_path;
     size_t output_file_path_len;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "s",
                               &output_file_path, &output_file_path_len) == FAILURE) {
         RETURN_FALSE;
     }
@@ -1214,7 +1361,7 @@ PHP_METHOD(Sox, save)
 
     if (!obj->output_file) {
         sox_quit();
-        zend_throw_exception(zend_ce_exception, "Failed to open output file", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Failed to open output file", 0);
         RETURN_FALSE;
     }
 
@@ -1250,14 +1397,14 @@ PHP_METHOD(Sox, segment)
 {
     long start, duration;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &start, &duration) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "ll", &start, &duration) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -1266,7 +1413,7 @@ PHP_METHOD(Sox, segment)
     asprintf(&start_str, "%ld", start);
     asprintf(&duration_str, "%ld", duration);
     char *trim_args[] = {start_str, duration_str};
-    apply_single_effect(obj, "trim", 2, trim_args TSRMLS_CC);
+    apply_single_effect(obj, "trim", 2, trim_args);
     free(start_str);
     free(duration_str);
 }
@@ -1278,21 +1425,21 @@ PHP_METHOD(Sox, splice)
 {
     long position;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &position) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "l", &position) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
     char *position_str;
     asprintf(&position_str, "%ld", position);
     char *splice_args [] = {position_str};
-    apply_single_effect(obj, "splice", 1, splice_args TSRMLS_CC);
+    apply_single_effect(obj, "splice", 1, splice_args);
     free(position_str);
 }
 
@@ -1303,7 +1450,7 @@ PHP_METHOD(Sox, speed)
 {
     double factor;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &factor) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "d", &factor) == FAILURE) {
         RETURN_FALSE;
     }
 
@@ -1332,21 +1479,21 @@ PHP_METHOD(Sox, stretch)
 {
     double factor;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &factor) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "d", &factor) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
     char factor_str[32];
     snprintf(factor_str, sizeof(factor_str), "%f", factor);
     char *stretch_args[] = {factor_str};
-    apply_single_effect(obj, "stretch", 1, stretch_args TSRMLS_CC);
+    apply_single_effect(obj, "stretch", 1, stretch_args);
 }
 
 /********************************************************************************************************************
@@ -1357,11 +1504,11 @@ PHP_METHOD(Sox, swap)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
-    apply_single_effect(obj, "swap", 0, NULL TSRMLS_CC);
+    apply_single_effect(obj, "swap", 0, NULL);
 }
 
 /********************************************************************************************************************
@@ -1371,21 +1518,21 @@ PHP_METHOD(Sox, tempo)
 {
     double factor;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &factor) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "d", &factor) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
     char factor_str[32];
     snprintf(factor_str, sizeof(factor_str), "%f", factor);
     char *tempo_args[] = {factor_str};
-    apply_single_effect(obj, "tempo", 1, tempo_args TSRMLS_CC);
+    apply_single_effect(obj, "tempo", 1, tempo_args);
 }
 
 /********************************************************************************************************************
@@ -1396,7 +1543,7 @@ PHP_METHOD(Sox, to_mono)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before to_mono().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before to_mono().", 0);
         RETURN_FALSE;
     }
 
@@ -1414,12 +1561,12 @@ PHP_METHOD(Sox, to_stereo)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before to_stereo().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before to_stereo().", 0);
         RETURN_FALSE;
     }
 
     if (obj->input_file->signal.channels == 2) {
-        zend_throw_exception(zend_ce_exception, "The input file is already stereo.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "The input file is already stereo.", 0);
         RETURN_FALSE;
     }
 
@@ -1435,7 +1582,7 @@ PHP_METHOD(Sox, to_stereo)
 PHP_METHOD(Sox, treble)
 {
     double gain_db, freq, width;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ddd", &gain_db, &freq, &width) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "ddd", &gain_db, &freq, &width) == FAILURE) {
         RETURN_NULL();
     }
 
@@ -1475,14 +1622,14 @@ PHP_METHOD(Sox, trim)
 {
     long start, duration;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &start, &duration) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "ll", &start, &duration) == FAILURE) {
         RETURN_FALSE;
     }
 
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -1491,7 +1638,7 @@ PHP_METHOD(Sox, trim)
     asprintf(&start_str, "%ld", start);
     asprintf(&duration_str, "%ld", duration);
     char *splice_args[] = {start_str, duration_str};
-    apply_single_effect(obj, "splice", 2, splice_args TSRMLS_CC);
+    apply_single_effect(obj, "splice", 2, splice_args);
     free(start_str);
     free(duration_str);
 }
@@ -1511,7 +1658,7 @@ PHP_METHOD(Sox, vad)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No audio file has been loaded.", 0);
         RETURN_FALSE;
     }
 
@@ -1544,7 +1691,7 @@ PHP_METHOD(Sox, visualize)
     zend_long width, height;
     zval *rgb_array;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sllA",
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "sllA",
                               &output_file_path, &output_file_path_len,
                               &width, &height, &rgb_array) == FAILURE) {
         RETURN_FALSE;
@@ -1553,7 +1700,7 @@ PHP_METHOD(Sox, visualize)
     php_sox_object *obj = Z_SOX_P(getThis());
 
     if (!obj->input_file) {
-        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before visualize().", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "No input file loaded. Call load() before visualize().", 0);
         RETURN_FALSE;
     }
 
@@ -1566,7 +1713,7 @@ PHP_METHOD(Sox, visualize)
     b = zend_hash_index_find(rgb_hash, 2);
 
     if (!r || !g || !b) {
-        zend_throw_exception(zend_ce_exception, "Invalid RGB array. It must contain 3 integer values.", 0 TSRMLS_CC);
+        zend_throw_exception(zend_ce_exception, "Invalid RGB array. It must contain 3 integer values.", 0);
         RETURN_FALSE;
     }
 
@@ -1599,7 +1746,7 @@ PHP_METHOD(Sox, volume)
 {
     double factor;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "d", &factor) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() , "d", &factor) == FAILURE) {
         RETURN_FALSE;
     }
 
@@ -1732,7 +1879,8 @@ void apply_reverb_effect(zval *obj, double reverberance, double hf_damping, doub
 }
 
 // Add a function to apply a single effect with given arguments
-static void apply_single_effect(php_sox_object *obj, const char *effect_name, int argc, char **argv TSRMLS_DC) {
+void apply_single_effect(php_sox_object *obj, const char *effect_name, int argc, char **argv) 
+{
     sox_effects_chain_t *chain = sox_create_effects_chain(&obj->input_file->encoding, &obj->input_file->encoding);
     sox_effect_t *effect = sox_create_effect(sox_find_effect(effect_name));
     sox_effect_options(effect, argc, argv);
@@ -1754,6 +1902,38 @@ void apply_tremolo_effect(zval *obj, double speed, double depth)
     const char *options[] = {speed_str, depth_str};
     sox_effect_options(effect, 2, (char **)options);
     chain_add_effect(sox_object, effect);
+}
+
+void php_sox_object_create_handler(void)
+{
+    memcpy(&php_sox_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
+    php_sox_object_handlers.offset = XtOffsetOf(php_sox_object, std);
+    php_sox_object_handlers.free_obj = php_sox_object_free_obj;
+}
+
+void php_sox_object_free_obj(zend_object *object)
+{
+    php_sox_object *obj = (php_sox_object *)((char *)(object) - XtOffsetOf(php_sox_object, std));
+
+    if (obj->input_file) {
+        sox_close(obj->input_file);
+    }
+    if (obj->output_file) {
+        sox_close(obj->output_file);
+    }
+    if (obj->chain) {
+        sox_delete_effects_chain(obj->chain);
+    }
+    if (obj->buffer) {
+        efree(obj->buffer);
+    }
+
+    // Release memory for input_filename
+    if (obj->input_filename) {
+        zend_string_release(obj->input_filename);
+    }
+
+    zend_object_std_dtor(&obj->std);
 }
 
 // Custom output handler for stat effect
@@ -1779,3 +1959,4 @@ static int stat_output_handler(sox_bool all_done, void *client_data)
 
     return SOX_SUCCESS;
 }
+
