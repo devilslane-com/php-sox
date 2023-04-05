@@ -9,7 +9,10 @@
 /build/
 /config.guess
 /config.sub
+/config.h
+/config.in
 /configure
+/configure.ac
 /install-sh
 /libtool
 /ltmain.sh
@@ -24,6 +27,9 @@
 /tests/*.xdebug
 /m4/
 /modules/
+/*.libs
+/*.ac
+/*.dep
 /*.la
 /*.lo
 /*.o
