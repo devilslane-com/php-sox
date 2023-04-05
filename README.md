@@ -20,7 +20,7 @@ SoX is a cross-platform (Windows, Linux, MacOS X, etc.) command line utility tha
 ```php
 (new Sox)->load("input_audio_file.wav")
    ->volume(1.5)
-   ->convert(128, 'mp3')
+   ->convert('mp3', 128)
    ->save('output.mp3');
 ```
 
@@ -116,7 +116,7 @@ allpass band bandpass bandreject bass bend biquad chorus channels compand contra
    $sox->chorus(float $gain_in = 1.0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0, float $speed_ms = 0, float $depth_ms = 0);
    $sox->compressor();
    $sox->concatenate(array $chunks = ['path/to/audio1.wav', 'path/to/audio2.wav']);
-   $sox->convert(int $bitrate = 256, string $format = "mp3");
+   $sox->convert(string $format = "mp3", int $bitrate = 256);
    $sox->delay();
    $sox->dither();
    $sox->echo(float $gain_in = 0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0);
