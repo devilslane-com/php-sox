@@ -78,6 +78,16 @@ ZEND_BEGIN_ARG_INFO(arginfo_sox_chorus, 0)
     ZEND_ARG_TYPE_INFO(0, depth, IS_DOUBLE, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sox_compressor, 0, 7, IS_VOID, 0)
+    ZEND_ARG_TYPE_INFO(0, input_gain, IS_DOUBLE, 0)
+    ZEND_ARG_TYPE_INFO(0, threshold, IS_DOUBLE, 0)
+    ZEND_ARG_TYPE_INFO(0, ratio, IS_DOUBLE, 0)
+    ZEND_ARG_TYPE_INFO(0, attack, IS_DOUBLE, 0)
+    ZEND_ARG_TYPE_INFO(0, release, IS_DOUBLE, 0)
+    ZEND_ARG_TYPE_INFO(0, output_gain, IS_DOUBLE, 0)
+    ZEND_ARG_TYPE_INFO(0, knee, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_concatenate, 0, 0, 2)
     ZEND_ARG_TYPE_INFO(0, files, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
@@ -85,6 +95,12 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_convert, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, bitrate, IS_DOUBLE, 0)
     ZEND_ARG_TYPE_INFO(0, output_file_type, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_sox_delay, 0, 0, 3)
+    ZEND_ARG_INFO(0, position)
+    ZEND_ARG_INFO(0, delay_time)
+    ZEND_ARG_INFO(0, repetitions)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_sox_echo, 0)
@@ -256,10 +272,10 @@ static const zend_function_entry sox_methods[] = {
     PHP_ME(Sox, analyze, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, bass, arginfo_sox_bass, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, chorus, arginfo_sox_chorus, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, compressor, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, compressor, arginfo_sox_compressor, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, concatenate, arginfo_sox_concatenate, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, convert, arginfo_sox_convert, ZEND_ACC_PUBLIC)
-    PHP_ME(Sox, delay, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(Sox, delay, arginfo_sox_delay, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, dither, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, echo, arginfo_sox_echo, ZEND_ACC_PUBLIC)
     PHP_ME(Sox, eq, arginfo_sox_eq, ZEND_ACC_PUBLIC)
@@ -411,6 +427,37 @@ PHP_METHOD(Sox, chorus)
 }
 
 /********************************************************************************************************************
+  COMPRESSOR (float $input_gain = 0, float $threshold = 12, float $ratio = 5, float $attack_ms = 10, float $release_ms = 50, string $knee = "soft|hard") 
+********************************************************************************************************************/
+PHP_METHOD(Sox, compressor)
+{
+    double input_gain, threshold, ratio, attack, release, output_gain;
+    char *knee;
+    size_t knee_len;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "dddddds", &input_gain, &threshold, &ratio, &attack, &release, &output_gain, &knee, &knee_len) == FAILURE) {
+        return;
+    }
+
+    php_sox_object *intern = Z_SOX_P(getThis());
+
+    sox_effects_chain_t *chain = intern->chain;
+    sox_effect_t *effp = sox_create_effect(sox_find_effect("compand"));
+
+    char input_gain_str[20], threshold_str[20], ratio_str[20], attack_str[20], release_str[20], output_gain_str[20];
+    snprintf(input_gain_str, sizeof(input_gain_str), "%.2f", input_gain);
+    snprintf(threshold_str, sizeof(threshold_str), "%.2f", threshold);
+    snprintf(ratio_str, sizeof(ratio_str), "%.2f", ratio);
+    snprintf(attack_str, sizeof(attack_str), "%.2f", attack);
+    snprintf(release_str, sizeof(release_str), "%.2f", release);
+    snprintf(output_gain_str, sizeof(output_gain_str), "%.2f", output_gain);
+
+    const char *argv[] = { "compand", input_gain_str, threshold_str, ratio_str, attack_str, release_str, output_gain_str, knee };
+    sox_effect_options(effp, 8, (char **)argv);
+    chain_add_effect(chain, effp);
+}
+
+/********************************************************************************************************************
   CONCATENATE (array $files = ['audio1.wav', 'audio2.wav']) 
 ********************************************************************************************************************/
 PHP_METHOD(Sox, concatenate)
@@ -527,6 +574,40 @@ PHP_METHOD(Sox, convert)
 
     sox_delete_effects_chain(chain);
     sox_close(output_file);
+}
+
+/********************************************************************************************************************
+  DELAY (float $position_ms = 200, float $delay_time_ms = 500, int $repetitions = 5)
+********************************************************************************************************************/
+static PHP_METHOD(Sox, delay)
+{
+    php_sox_object *intern;
+    double position, delay_time;
+    zend_long repetitions;
+
+    ZEND_PARSE_PARAMETERS_START(3, 3)
+        Z_PARAM_DOUBLE(position)
+        Z_PARAM_DOUBLE(delay_time)
+        Z_PARAM_LONG(repetitions)
+    ZEND_PARSE_PARAMETERS_END();
+
+    intern = Z_SOX_P(getThis());
+
+    sox_effect_t *effect = sox_create_effect(sox_find_effect("delay"));
+
+    char position_str[32], delay_time_str[32];
+    sprintf(position_str, "%.2lf", position);
+    sprintf(delay_time_str, "%.2lf", delay_time);
+
+    char *argv[] = {position_str, delay_time_str};
+    sox_effect_options(effect, 2, argv);
+    chain_add_effect(intern, effect);
+
+    for (zend_long i = 1; i < repetitions; ++i) {
+        effect = sox_create_effect(sox_find_effect("delay"));
+        sox_effect_options(effect, 2, argv);
+        chain_add_effect(intern, effect);
+    }
 }
 
 /********************************************************************************************************************

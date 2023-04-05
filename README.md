@@ -114,10 +114,10 @@ allpass band bandpass bandreject bass bend biquad chorus channels compand contra
 
    $sox->bass(float $decibels = 1.0, float $frequency_hz = 400, float $width_hz = 100);
    $sox->chorus(float $gain_in = 1.0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0, float $speed_ms = 0, float $depth_ms = 0);
-   $sox->compressor();
+   $sox->compressor(float $input_gain = 0, float $threshold = 12, float $ratio = 5, float $attack_ms = 10, float $release_ms = 50, string $knee = "soft|hard");
    $sox->concatenate(array $chunks = ['path/to/audio1.wav', 'path/to/audio2.wav']);
    $sox->convert(string $format = "mp3", int $bitrate = 256);
-   $sox->delay();
+   $sox->delay(float $position_ms = 200, float $delay_time_ms = 500, int $repetitions = 5);
    $sox->dither();
    $sox->echo(float $gain_in = 0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0);
    $sox->eq(float $frequency_hz = 1500, float $width_hz = 100, float $decibels = -3.5);
