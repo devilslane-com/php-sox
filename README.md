@@ -13,86 +13,146 @@ Sox is the "Swiss Army knife of sound processing programs".
 
 SoX is a cross-platform (Windows, Linux, MacOS X, etc.) command line utility that can convert various formats of computer audio files in to other formats. It can also apply various effects to these sound files, and, as an added bonus, SoX can play and record audio files on most platforms.
 
+## Examples
+
+### Increase audio volume by 50% and export as 128-bit MP3
+
+```php
+(new Sox)->load("input_audio_file.wav")
+   ->volume(1.5)
+   ->convert(128, 'mp3')
+   ->save('output.mp3');
+```
+
+### Change to 16-bit 44Hz, increase gain by 6db, at 2x speed
+```php
+(new Sox)->load("input_audio_file.wav")
+   ->sample_rate(44000)
+   ->sample_size(16)
+   ->gain(6)
+   ->speed(2.0)
+   ->save('output.wav');
+```
+
+## SoX Features
+
+### Audio Formats
+
+```
+8svx aif aifc aiff aiffc al amb amr-nb amr-wb anb au avr awb caf cdda cdr cvs cvsd cvu dat dvms f32 f4 f64 f8 fap flac fssd gsm gsrt hcom htk ima ircam la lpc lpc10 lu mat mat4 mat5 maud mp2 mp3 nist ogg paf prc pvf raw s1 s16 s2 s24 s3 s32 s4 s8 sb sd2 sds sf sl sln smp snd sndfile sndr sndt sou sox sph sw txw u1 u16 u2 u24 u3 u32 u4 u8 ub ul uw vms voc vorbis vox w64 wav wavpcm wv wve xa xi
+```
+
+### Audio Effects
+
+```
+allpass band bandpass bandreject bass bend biquad chorus channels compand contrast dcshift deemph delay dither divide+ downsample earwax echo echos equalizer fade fir firfit+ flanger gain highpass hilbert input# ladspa loudness lowpass mcompand noiseprof noisered norm oops output# overdrive pad phaser pitch rate remix repeat reverb reverse riaa silence sinc spectrogram speed splice stat stats stretch swap synth tempo treble tremolo trim upsample vad vol
+```
+
+## Frequency Guide
+
+```
++-----------------------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+| Instrument/Sound      |   50Hz |  100Hz |  200Hz |  500Hz | 1,000Hz| 2,000Hz| 5,000Hz|10,000Hz|20,000Hz|25,000Hz|
++-----------------------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+| Kick Drum             |    X   |    X   |    X   |        |        |        |        |        |        |        |
+| Bass Guitar           |    X   |    X   |    X   |    X   |    X   |        |        |        |        |        |
+| Electric Guitar       |        |        |    X   |    X   |    X   |    X   |    X   |        |        |        |
+| Piano                 |    X   |    X   |    X   |    X   |    X   |    X   |    X   |    X   |        |        |
+| Human Voice (Male)    |        |    X   |    X   |    X   |    X   |    X   |    X   |        |        |        |
+| Human Voice (Female)  |        |        |    X   |    X   |    X   |    X   |    X   |    X   |        |        |
+| Cymbals               |        |        |        |    X   |    X   |    X   |    X   |    X   |    X   |    X   |
+| Violin                |        |        |    X   |    X   |    X   |    X   |    X   |    X   |        |        |
+| Flute                 |        |        |        |    X   |    X   |    X   |    X   |    X   |        |        |
+| Trumpet               |        |        |    X   |    X   |    X   |    X   |    X   |    X   |        |        |
+| Sibilance (Ess sound) |        |        |        |        |        |        |    X   |    X   |    X   |    X   |
++-----------------------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+
+```
+
 ## API Functions
 
 ### Loading and saving
 
 ```php
-// Create a new Sox instance
-$sox = new Sox();
+   // Create a new Sox instance
+   $sox = new Sox();
 
-// Load an audio file
-$sox->load("path/to/your/input_audio_file.wav");
+   // Load an audio file
+   $sox->load(string $file_path = "path/to/your/input_audio_file.wav");
 
-// Save the processed audio to a file
-$sox->save("path/to/your/output_audio_file.wav");
+   // Or load a list to combine together
+   $sox->concatenate(array $chunks = ['path/to/audio1.wav', 'path/to/audio2.wav']);
+
+   // Save the processed audio to a file
+   $sox->save(string $save_path = "path/to/your/output_audio_file.wav");
 ```
 
 ### Utilities
 
 ```php
-// Create a new Sox instance
-$sox = new Sox();
+   // Create a new Sox instance
+   $sox = new Sox();
 
-$sox->formats() // array of supported formats
-$sox->version() // string of libsox version
+   $sox->formats(); // array of supported formats
+   $sox->version(); // string of libsox version
 
-// Load an audio file
-$sox->load(string $file_path = "path/to/your/input_audio_file.wav");
+   // Load an audio file
+   $sox->load(string $file_path = "path/to/your/input_audio_file.wav");
 
-$sox->analyze(); // array of data from the stat() function in libsox
-$sox->visualize(string $export_image_path = "path/to/your/spectrogram_image.png", int $width = 1024, int $height = 768, array $rgb_values = [100, 20, 56]) : bool // generate a spectrogram with RGB colour values
+   $sox->analyze(); // array of data from the stat() function in libsox
+   $sox->visualize(string $export_image_path = "path/to/your/spectrogram_image.png", int $width = 1024, int $height = 768, array $rgb_values = [100, 20, 56]); // generate a spectrogram with RGB colour values
 ```
 
-### Processing
+### Chainable Processing
 
 ```php
-// Create a new Sox instance
-$sox = new Sox();
+   // Create a new Sox instance
+   $sox = new Sox();
 
-// Load an audio file
-$sox->load(string $file_path = "path/to/your/input_audio_file.wav");
+   // Load an audio file
+   $sox->load(string $file_path = "path/to/your/input_audio_file.wav");
 
-$sox->bass() : bool
-$sox->chorus() : bool
-$sox->compressor() : bool
-$sox->concatenate(array $chunks = ['path/to/audio1.wav', 'path/to/audio2.wav']) : bool
-$sox->convert(string $format = "mp3") : bool
-$sox->delay() : bool
-$sox->dither() : bool
-$sox->echo() : bool
-$sox->eq() : bool
-$sox->extract_left() : bool
-$sox->extract_right() : bool
-$sox->fade() : bool
-$sox->filter() : bool
-$sox->gain() : bool
-$sox->loudness() : bool
-$sox->metadata() : bool
-$sox->mix([], ''): bool
-$sox->noise() : bool
-$sox->normalize() : bool
-$sox->pad() : bool
-$sox->phaser() : bool
-$sox->pitch() : bool
-$sox->repeat() : bool
-$sox->reverb() : bool
-$sox->reverse() : bool
-$sox->sample_rate(int $hz = 48000) : bool
-$sox->sample_size(int $bits = 16) : bool
-$sox->segment() : bool
-$sox->speed(float $factor = 1.2) : bool
-$sox->splice() : bool
-$sox->stretch() : bool
-$sox->swap() : bool // channels
-$sox->tempo() : bool
-$sox->to_mono() : bool
-$sox->to_stereo() : bool
-$sox->treble() : bool
-$sox->tremolo() : bool
-$sox->trim() : bool
-$sox->vad() : bool
-$sox->volume(float $factor = 1.5) : bool
+   $sox->bass(float $decibels = 1.0, float $frequency_hz = 400, float $width_hz = 100);
+   $sox->chorus(float $gain_in = 1.0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0, float $speed_ms = 0, float $depth_ms = 0);
+   $sox->compressor();
+   $sox->concatenate(array $chunks = ['path/to/audio1.wav', 'path/to/audio2.wav']);
+   $sox->convert(int $bitrate = 256, string $format = "mp3");
+   $sox->delay();
+   $sox->dither();
+   $sox->echo(float $gain_in = 0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0);
+   $sox->eq(float $frequency_hz = 1500, float $width_hz = 100, float $decibels = -3.5);
+   $sox->extract_left();
+   $sox->extract_right();
+   $sox->fade(string $type = "in|out", int $length = 10);
+   $sox->filter(string $type = "allpass|bandpass|bankreject|lowpass|highpass", float $frequency_hz = 1000, float $width_hz = 100); 
+   $sox->flanger(float $delay_ms = 0, float $depth_ms = 0, float $regeneration_percent = 0, float $width_percent = 0, float $speed_hz = 0, string $shape = "sine|triangle", string $phase_percent, string $interpolation ="linear|quadratic");
+   $sox->gain(float $decibels = 1.0);
+   $sox->loudness(float $gain = 1.0, float $reference = 0.5);
+   $sox->metadata(string $comment = "");
+   $sox->mix(array $files = ['audio1.wav', 'audio2.wav']);
+   $sox->noise(int $sample_from_ms = 0, int $sample_duration_ms = 10000, float $sensitivity = 0.21);
+   $sox->normalize(int $decibels = 0);
+   $sox->pad(float $start = 0, float $end = 400);
+   $sox->phaser(float $gain_in = 0, float $gain_out = 0, float $delay_ms = 0, float $decay_ms = 0, float $speed_ms = 0);
+   $sox->pitch(float $frequency_hz = -31);
+   $sox->repeat(int $count = 5);
+   $sox->reverb(float $reverberance_percent = 100, float $hf_damping_percent = 100, float $room_scale_percent = 100, float $stereo_depth_percent = 100, float $pre_delay_ms = 0, float $wet_gain_decibels = 0);
+   $sox->reverse();
+   $sox->sample_rate(int $hertz = 48000);
+   $sox->sample_size(int $bits = 16);
+   $sox->segment(float $start = 0, float $duration = 10);
+   $sox->speed(float $factor = 1.2);
+   $sox->splice(float $position = 20);
+   $sox->stretch(float $factor = 1.0);
+   $sox->swap(); // left/right channels
+   $sox->tempo(float $factor = 1.0);
+   $sox->to_mono();
+   $sox->to_stereo();
+   $sox->treble(float $decibels = 2.0, float $frequency_hz = 3500, float $width_hz = 100);
+   $sox->tremolo(float $speed_ms = 0, float $depth_ms = 0);
+   $sox->trim(float $start = 50, float $duration = 5);
+   $sox->vad(float $initial_trim = 0, float $trigger_level = 0.71);
+   $sox->volume(float $factor = 1.5);
 ```
 
 
